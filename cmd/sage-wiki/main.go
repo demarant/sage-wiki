@@ -1,0 +1,372 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+	"github.com/xoai/sage-wiki/internal/log"
+	"strings"
+
+	"github.com/xoai/sage-wiki/internal/compiler"
+	"github.com/xoai/sage-wiki/internal/config"
+	"github.com/xoai/sage-wiki/internal/hybrid"
+	"github.com/xoai/sage-wiki/internal/linter"
+	"github.com/xoai/sage-wiki/internal/memory"
+	mcppkg "github.com/xoai/sage-wiki/internal/mcp"
+	"github.com/xoai/sage-wiki/internal/query"
+	"github.com/xoai/sage-wiki/internal/storage"
+	"github.com/xoai/sage-wiki/internal/vectors"
+	"github.com/xoai/sage-wiki/internal/wiki"
+)
+
+var (
+	projectDir string
+	configPath string
+	verbose    bool
+)
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+var rootCmd = &cobra.Command{
+	Use:   "sage-wiki",
+	Short: "LLM-compiled personal knowledge base",
+	Long:  "sage-wiki compiles raw documents into a structured, interlinked markdown wiki using LLM agents.",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		log.SetVerbose(verbose)
+	},
+}
+
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize a new sage-wiki project",
+	RunE:  runInit,
+}
+
+var compileCmd = &cobra.Command{
+	Use:   "compile",
+	Short: "Compile sources into wiki articles",
+	RunE:  runCompile,
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start MCP server",
+	RunE:  runServe,
+}
+
+var lintCmd = &cobra.Command{
+	Use:   "lint",
+	Short: "Run linting passes on the wiki",
+	RunE:  runLint,
+}
+
+var searchCmd = &cobra.Command{
+	Use:   "search [query]",
+	Short: "Search the wiki",
+	Args:  cobra.MinimumNArgs(1),
+	RunE:  runSearch,
+}
+
+var queryCmd = &cobra.Command{
+	Use:   "query [question]",
+	Short: "Ask a question against the wiki",
+	Args:  cobra.MinimumNArgs(1),
+	RunE:  runQuery,
+}
+
+var statusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show wiki stats and health",
+	RunE:  runStatus,
+}
+
+var ingestCmd = &cobra.Command{
+	Use:   "ingest [url-or-path]",
+	Short: "Add a source to the wiki",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runIngest,
+}
+
+var doctorCmd = &cobra.Command{
+	Use:   "doctor",
+	Short: "Validate configuration and connectivity",
+	RunE:  runDoctor,
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVar(&projectDir, "project", ".", "Project directory")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path (default: <project>/config.yaml)")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging")
+
+	// Init flags
+	initCmd.Flags().Bool("vault", false, "Initialize as vault overlay on existing Obsidian vault")
+
+	// Compile flags
+	compileCmd.Flags().Bool("watch", false, "Watch for changes and recompile")
+	compileCmd.Flags().Bool("dry-run", false, "Show what would change without writing")
+	compileCmd.Flags().Bool("fresh", false, "Ignore checkpoint, clean compile")
+
+	// Serve flags
+	serveCmd.Flags().String("transport", "stdio", "Transport: stdio or sse")
+	serveCmd.Flags().Int("port", 3333, "SSE port")
+
+	// Lint flags
+	lintCmd.Flags().Bool("fix", false, "Auto-fix issues")
+	lintCmd.Flags().String("pass", "", "Run specific lint pass")
+	lintCmd.Flags().Bool("dry-run", false, "Show findings without fixing")
+
+	// Search flags
+	searchCmd.Flags().StringSlice("tags", nil, "Filter by tags")
+	searchCmd.Flags().Int("limit", 10, "Maximum results")
+
+	rootCmd.AddCommand(initCmd, compileCmd, serveCmd, lintCmd, searchCmd, queryCmd, statusCmd, ingestCmd, doctorCmd)
+}
+
+// Placeholder implementations — will be filled in subsequent tasks
+
+func runInit(cmd *cobra.Command, args []string) error {
+	vaultMode, _ := cmd.Flags().GetBool("vault")
+	dir, _ := filepath.Abs(projectDir)
+
+	// Derive project name from directory
+	project := filepath.Base(dir)
+
+	if vaultMode {
+		// Scan folders for interactive selection
+		folders, err := wiki.ScanFolders(dir)
+		if err != nil {
+			return fmt.Errorf("failed to scan vault: %w", err)
+		}
+
+		if len(folders) == 0 {
+			return fmt.Errorf("no folders found in %s", dir)
+		}
+
+		fmt.Printf("Detected vault: %s\n", project)
+		fmt.Printf("Found %d folders:\n\n", len(folders))
+
+		var sourceFolders, ignoreFolders []string
+		for _, f := range folders {
+			desc := fmt.Sprintf("  %s/ (%d files", f.Name, f.FileCount)
+			if f.HasPDF {
+				desc += ", has PDFs"
+			}
+			desc += ")"
+			fmt.Println(desc)
+
+			// Default: folders with content are sources, others ignored
+			if f.FileCount > 0 {
+				sourceFolders = append(sourceFolders, f.Name)
+			} else {
+				ignoreFolders = append(ignoreFolders, f.Name)
+			}
+		}
+
+		fmt.Printf("\nSource folders: %v\n", sourceFolders)
+		fmt.Printf("Ignored folders: %v\n", ignoreFolders)
+		fmt.Println("\nEdit config.yaml to adjust source/ignore folders.")
+
+		if err := wiki.InitVaultOverlay(dir, project, sourceFolders, ignoreFolders, "_wiki"); err != nil {
+			return err
+		}
+	} else {
+		if err := wiki.InitGreenfield(dir, project); err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("\nProject %q initialized. Run: sage-wiki compile --watch\n", project)
+	return nil
+}
+
+func runCompile(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	fresh, _ := cmd.Flags().GetBool("fresh")
+	watch, _ := cmd.Flags().GetBool("watch")
+
+	if watch {
+		fmt.Println("Watching for changes... (Ctrl+C to stop)")
+		return compiler.Watch(dir, 2)
+	}
+
+	result, err := compiler.Compile(dir, compiler.CompileOpts{
+		DryRun: dryRun,
+		Fresh:  fresh,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Compile complete: +%d added, ~%d modified, -%d removed, %d summarized, %d concepts, %d articles",
+		result.Added, result.Modified, result.Removed, result.Summarized,
+		result.ConceptsExtracted, result.ArticlesWritten)
+	if result.Errors > 0 {
+		fmt.Printf(", %d errors", result.Errors)
+	}
+	fmt.Println()
+	return nil
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	srv, err := mcppkg.NewServer(dir)
+	if err != nil {
+		return err
+	}
+
+	transport, _ := cmd.Flags().GetString("transport")
+	if transport == "sse" {
+		port, _ := cmd.Flags().GetInt("port")
+		fmt.Fprintf(os.Stderr, "sage-wiki MCP server starting on SSE (127.0.0.1:%d)...\n", port)
+		return srv.ServeSSE(port)
+	}
+
+	fmt.Fprintln(os.Stderr, "sage-wiki MCP server starting on stdio...")
+	return srv.ServeStdio()
+}
+
+func runLint(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	fix, _ := cmd.Flags().GetBool("fix")
+	passName, _ := cmd.Flags().GetString("pass")
+
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	ctx := &linter.LintContext{
+		ProjectDir: dir,
+		OutputDir:  cfg.Output,
+		DBPath:     filepath.Join(dir, ".sage", "wiki.db"),
+	}
+
+	runner := linter.NewRunner()
+	results, err := runner.Run(ctx, passName, fix)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(linter.FormatFindings(results))
+
+	if err := linter.SaveReport(dir, results); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save lint report: %v\n", err)
+	}
+
+	return nil
+}
+
+func runSearch(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	queryStr := strings.Join(args, " ")
+	tags, _ := cmd.Flags().GetStringSlice("tags")
+	limit, _ := cmd.Flags().GetInt("limit")
+
+	db, err := storage.Open(filepath.Join(dir, ".sage", "wiki.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	memStore := memory.NewStore(db)
+	vecStore := vectors.NewStore(db)
+	searcher := hybrid.NewSearcher(memStore, vecStore)
+
+	results, err := searcher.Search(hybrid.SearchOpts{
+		Query: queryStr,
+		Tags:  tags,
+		Limit: limit,
+	}, nil)
+	if err != nil {
+		return err
+	}
+
+	if len(results) == 0 {
+		fmt.Println("No results found.")
+		return nil
+	}
+
+	for i, r := range results {
+		fmt.Printf("%d. [%.4f] %s\n", i+1, r.RRFScore, r.ArticlePath)
+		// Show truncated content
+		content := r.Content
+		if len(content) > 120 {
+			content = content[:120] + "..."
+		}
+		fmt.Printf("   %s\n", content)
+		if len(r.Tags) > 0 {
+			fmt.Printf("   tags: %s\n", strings.Join(r.Tags, ", "))
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func runQuery(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	question := strings.Join(args, " ")
+
+	result, err := query.Query(dir, question, "terminal", 5)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(result.Answer)
+	if result.OutputPath != "" {
+		fmt.Fprintf(os.Stderr, "\nFiled to: %s\n", result.OutputPath)
+	}
+	return nil
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	info, err := wiki.GetStatus(dir, nil)
+	if err != nil {
+		return err
+	}
+	fmt.Print(wiki.FormatStatus(info))
+	return nil
+}
+
+func runIngest(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	target := args[0]
+
+	var result *wiki.IngestResult
+	var err error
+
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		result, err = wiki.IngestURL(dir, target)
+	} else {
+		result, err = wiki.IngestPath(dir, target)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Ingested: %s (type: %s, %d bytes)\n", result.SourcePath, result.Type, result.Size)
+	fmt.Println("Run 'sage-wiki compile' to process.")
+	return nil
+}
+
+func runDoctor(cmd *cobra.Command, args []string) error {
+	dir, _ := filepath.Abs(projectDir)
+	result := wiki.RunDoctor(dir)
+	fmt.Print(wiki.FormatDoctor(result))
+	if result.HasErrors() {
+		return fmt.Errorf("doctor found errors")
+	}
+	return nil
+}

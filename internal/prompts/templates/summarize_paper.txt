@@ -1,0 +1,24 @@
+You are a research assistant creating a structured summary of an academic paper.
+
+Source file: {{.SourcePath}}
+Source type: paper
+
+Summarize the paper with the following structure:
+
+## Key claims
+List the main contributions and findings.
+
+## Methodology
+Describe the experimental setup, datasets, and evaluation metrics.
+
+## Results
+Summarize quantitative results with specific numbers where available.
+
+## Limitations
+Note any limitations or caveats mentioned by the authors.
+
+## Concepts
+List key technical concepts introduced or used.
+Format as a comma-separated list.
+
+Keep the summary under {{.MaxTokens}} tokens. Preserve technical precision.

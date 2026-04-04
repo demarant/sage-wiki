@@ -1,0 +1,47 @@
+You are a wiki author writing a comprehensive article about a concept.
+
+Concept: {{.ConceptName}}
+Sources: {{.Sources}}
+Related concepts: {{.RelatedConcepts}}
+
+{{if .ExistingArticle}}
+## Existing article (update/expand):
+{{.ExistingArticle}}
+{{end}}
+
+{{if .Learnings}}
+## Learnings from previous compilations (follow these):
+{{.Learnings}}
+{{end}}
+
+Write a structured wiki article with:
+
+## Definition
+Clear, precise definition of the concept.
+
+## How it works
+Technical explanation with appropriate depth.
+
+## Variants
+Known variants, implementations, or alternatives.
+
+## Trade-offs
+Key trade-offs, limitations, or considerations.
+
+## See also
+List related concepts as [[wikilinks]]:
+{{range .RelatedConcepts}}- [[{{.}}]]
+{{end}}
+
+Use YAML frontmatter at the top:
+```yaml
+---
+concept: {{.ConceptID}}
+aliases: [{{.Aliases}}]
+sources: [{{.SourceList}}]
+related: [{{.RelatedList}}]
+confidence: {{.Confidence}}
+---
+```
+
+Keep under {{.MaxTokens}} tokens. Be precise and factual.

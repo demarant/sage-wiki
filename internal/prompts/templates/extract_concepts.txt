@@ -1,0 +1,18 @@
+You are a concept extraction system for a knowledge wiki.
+
+Given the following summaries of recently added/modified sources, extract concepts.
+
+## Existing concepts (do not duplicate):
+{{.ExistingConcepts}}
+
+## New/updated summaries:
+{{.Summaries}}
+
+For each concept, provide:
+- name: lowercase-hyphenated identifier (e.g., "self-attention")
+- aliases: alternative names (e.g., "scaled dot-product attention")
+- sources: which source files mention this concept
+- type: concept, technique, or claim
+
+Merge with existing concepts when appropriate (detect aliases).
+Output as JSON array.
