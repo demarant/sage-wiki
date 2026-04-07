@@ -89,19 +89,69 @@ sage-wiki compile --watch
 
 ## Configuration
 
-`config.yaml` is created by `sage-wiki init`. Key settings:
+`config.yaml` is created by `sage-wiki init`. Full example:
 
 ```yaml
+version: 1
 project: my-research
+description: "Personal research wiki"
+
+# Source folders to watch and compile
+sources:
+  - path: raw               # or vault folders like Clippings/, Papers/
+    type: auto               # auto-detect from file extension
+    watch: true
+
+output: wiki                 # compiled output directory (_wiki for vault overlay)
+
+# Folders to never read or send to APIs (vault overlay mode)
+# ignore:
+#   - Daily Notes
+#   - Personal
+
+# LLM provider
+# Supported: anthropic, openai, gemini, ollama, openai-compatible
+# For OpenRouter or other OpenAI-compatible providers:
+#   provider: openai-compatible
+#   base_url: https://openrouter.ai/api/v1
 api:
-  provider: anthropic    # anthropic, openai, gemini, ollama
-  api_key: ${API_KEY}    # env var expansion supported
+  provider: gemini
+  api_key: ${GEMINI_API_KEY}    # env var expansion supported
+  # base_url:                   # custom endpoint (OpenRouter, Azure, etc.)
+  # rate_limit: 60              # requests per minute
+
+# Model per task — use cheaper models for high-volume, quality for writing
 models:
-  summarize: claude-sonnet-4-20250514
-  write: claude-opus-4-20250514
+  summarize: gemini-3-flash-preview
+  extract: gemini-3-flash-preview
+  write: gemini-3-flash-preview
+  lint: gemini-3-flash-preview
+  query: gemini-3-flash-preview
+
+# Embedding provider (optional — auto-detected from api provider)
+# Override to use a different provider for embeddings
+embed:
+  provider: auto              # auto, openai, gemini, ollama, voyage, mistral
+  # model: text-embedding-3-small
+  # api_key: ${OPENAI_API_KEY}  # separate key for embeddings
+  # base_url:                   # separate endpoint
+
 compiler:
-  max_parallel: 4
-  auto_commit: true
+  max_parallel: 4             # concurrent LLM calls
+  debounce_seconds: 2         # watch mode debounce
+  summary_max_tokens: 2000
+  article_max_tokens: 4000
+  auto_commit: true           # git commit after compile
+  auto_lint: true             # run lint after compile
+
+search:
+  hybrid_weight_bm25: 0.7    # BM25 vs vector weight
+  hybrid_weight_vector: 0.3
+  default_limit: 10
+
+serve:
+  transport: stdio            # stdio or sse
+  port: 3333                  # SSE mode only
 ```
 
 ## Customizing Prompts
