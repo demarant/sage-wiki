@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/xoai/sage-wiki/internal/config"
+	"github.com/xoai/sage-wiki/internal/embed"
 	"github.com/xoai/sage-wiki/internal/hybrid"
 	"github.com/xoai/sage-wiki/internal/manifest"
 	"github.com/xoai/sage-wiki/internal/memory"
@@ -29,6 +30,7 @@ type Server struct {
 	vec        *vectors.Store
 	ont        *ontology.Store
 	searcher   *hybrid.Searcher
+	embedder   embed.Embedder
 	cfg        *config.Config
 }
 
@@ -58,6 +60,7 @@ func NewServer(projectDir string) (*Server, error) {
 		vec:        vec,
 		ont:        ont,
 		searcher:   searcher,
+		embedder:   embed.NewFromConfig(cfg),
 		cfg:        cfg,
 	}
 
@@ -203,11 +206,19 @@ func (s *Server) handleSearch(ctx context.Context, req mcp.CallToolRequest) (*mc
 		}
 	}
 
+	var queryVec []float32
+	if s.embedder != nil {
+		var embedErr error
+		queryVec, embedErr = s.embedder.Embed(query)
+		if embedErr != nil {
+			fmt.Fprintf(os.Stderr, "warn: search embed failed, falling back to BM25-only: %v\n", embedErr)
+		}
+	}
 	results, err := s.searcher.Search(hybrid.SearchOpts{
 		Query: query,
 		Tags:  tags,
 		Limit: limit,
-	}, nil)
+	}, queryVec)
 	if err != nil {
 		return errorResult(err.Error()), nil
 	}
