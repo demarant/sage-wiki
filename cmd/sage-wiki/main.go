@@ -12,6 +12,7 @@ import (
 
 	"github.com/xoai/sage-wiki/internal/compiler"
 	"github.com/xoai/sage-wiki/internal/config"
+	"github.com/xoai/sage-wiki/internal/embed"
 	"github.com/xoai/sage-wiki/internal/hybrid"
 	"github.com/xoai/sage-wiki/internal/linter"
 	"github.com/xoai/sage-wiki/internal/llm"
@@ -372,11 +373,24 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	vecStore := vectors.NewStore(db)
 	searcher := hybrid.NewSearcher(memStore, vecStore)
 
+	var queryVec []float32
+	cfg, cfgErr := config.Load(filepath.Join(dir, "config.yaml"))
+	if cfgErr == nil {
+		embedder := embed.NewFromConfig(cfg)
+		if embedder != nil {
+			var embedErr error
+			queryVec, embedErr = embedder.Embed(queryStr)
+			if embedErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: embed failed, using BM25-only: %v\n", embedErr)
+			}
+		}
+	}
+
 	results, err := searcher.Search(hybrid.SearchOpts{
 		Query: queryStr,
 		Tags:  tags,
 		Limit: limit,
-	}, nil)
+	}, queryVec)
 	if err != nil {
 		return err
 	}
