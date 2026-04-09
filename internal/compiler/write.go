@@ -15,6 +15,7 @@ import (
 	"github.com/xoai/sage-wiki/internal/log"
 	"github.com/xoai/sage-wiki/internal/memory"
 	"github.com/xoai/sage-wiki/internal/ontology"
+	"github.com/xoai/sage-wiki/internal/prompts"
 	"github.com/xoai/sage-wiki/internal/vectors"
 )
 
@@ -97,7 +98,22 @@ func writeOneArticle(
 
 	// Build prompt
 	relatedNames := findRelatedConcepts(concept)
-	prompt := buildArticlePrompt(concept, existingContent, relatedNames)
+	prompt, err := prompts.Render("write_article", prompts.WriteArticleData{
+		ConceptName:     formatConceptName(concept.Name),
+		ConceptID:       concept.Name,
+		Sources:         strings.Join(concept.Sources, ", "),
+		RelatedConcepts: relatedNames,
+		ExistingArticle: existingContent,
+		Aliases:         strings.Join(concept.Aliases, ", "),
+		SourceList:      strings.Join(concept.Sources, ", "),
+		RelatedList:     strings.Join(relatedNames, ", "),
+		Confidence:      "medium",
+		MaxTokens:       maxTokens,
+	})
+	if err != nil {
+		result.Error = fmt.Errorf("render write_article prompt: %w", err)
+		return result
+	}
 
 	resp, err := client.ChatCompletion([]llm.Message{
 		{Role: "system", Content: "You are a wiki author writing comprehensive, precise articles for a personal knowledge base. Use YAML frontmatter and [[wikilinks]]."},
@@ -193,55 +209,6 @@ func writeOneArticle(
 	}
 
 	return result
-}
-
-func buildArticlePrompt(concept ExtractedConcept, existing string, related []string) string {
-	var b strings.Builder
-
-	b.WriteString(fmt.Sprintf("Write a comprehensive wiki article about: %s\n\n", formatConceptName(concept.Name)))
-	b.WriteString(fmt.Sprintf("Concept ID: %s\n", concept.Name))
-
-	if len(concept.Aliases) > 0 {
-		b.WriteString(fmt.Sprintf("Also known as: %s\n", strings.Join(concept.Aliases, ", ")))
-	}
-
-	b.WriteString(fmt.Sprintf("Sources: %s\n", strings.Join(concept.Sources, ", ")))
-
-	if len(related) > 0 {
-		b.WriteString(fmt.Sprintf("Related concepts: %s\n", strings.Join(related, ", ")))
-	}
-
-	if existing != "" {
-		b.WriteString("\n## Existing article (update/expand):\n")
-		b.WriteString(existing)
-		b.WriteString("\n")
-	}
-
-	b.WriteString(`
-Write the article with:
-1. YAML frontmatter with these exact fields:
-   - concept: (the concept ID)
-   - aliases: (alternative names)
-   - sources: (source file paths)
-   - confidence: MUST be exactly one of: high, medium, low (no numbers, no percentages)
-2. ## Definition — clear, precise definition
-3. ## How it works — technical explanation
-4. ## Variants — known variants or implementations if any
-5. ## Trade-offs — key trade-offs or limitations
-6. ## See also — [[wikilinks]] to related concepts
-
-IMPORTANT rules for wikilinks:
-- Use [[concept-name]] format (lowercase-hyphenated)
-- Link to any concept that deserves a standalone article — even if the article doesn't exist yet (it will be created in future compiles)
-- Do NOT link to generic terms, math notation ($O(n)$), or register names ($a0)
-- Each link should be a meaningful technical concept, not filler
-
-For the concept's relationship to other concepts, indicate the relationship type in your text:
-- "X implements Y" / "X extends Y" / "X optimizes Y"
-- "X contradicts Y" / "X is a prerequisite for Y"
-This helps build the knowledge graph.`)
-
-	return b.String()
 }
 
 func buildFrontmatter(concept ExtractedConcept) string {

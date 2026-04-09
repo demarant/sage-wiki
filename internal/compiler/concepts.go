@@ -8,6 +8,7 @@ import (
 	"github.com/xoai/sage-wiki/internal/llm"
 	"github.com/xoai/sage-wiki/internal/log"
 	"github.com/xoai/sage-wiki/internal/manifest"
+	"github.com/xoai/sage-wiki/internal/prompts"
 )
 
 // ExtractedConcept represents a concept identified by the LLM.
@@ -79,32 +80,14 @@ func ExtractConcepts(
 			dedup = append(dedup, c.Name)
 		}
 
-		prompt := fmt.Sprintf(`Extract concepts from these summaries of recently added/modified sources.
-
-## Existing concepts (do not duplicate — merge with these when appropriate):
-%s
-
-## New/updated summaries:
-%s
-
-For each concept, provide:
-- name: lowercase-hyphenated identifier (e.g., "self-attention")
-- aliases: alternative names (e.g., ["scaled dot-product attention"])
-- sources: which source file paths mention this concept
-- type: one of "concept", "technique", or "claim"
-
-IMPORTANT filtering rules:
-- Only extract concepts that would warrant a standalone encyclopedia article
-- Do NOT extract: math notation ($O(n)$, $x^2$), register names ($a0, $t1),
-  single letters, numbers, file paths, or code syntax
-- Do NOT extract overly generic terms (e.g., "method", "system", "data")
-- Minimum: concept name should be at least 2 words or a recognized technical term
-
-Merge with existing concepts when you detect aliases or synonyms.
-Output ONLY a JSON array of objects. No markdown, no explanation.`,
-			strings.Join(dedup, ", "),
-			strings.Join(summaryTexts, "\n\n---\n\n"),
-		)
+		prompt, err := prompts.Render("extract_concepts", prompts.ExtractData{
+			ExistingConcepts: strings.Join(dedup, ", "),
+			Summaries:        strings.Join(summaryTexts, "\n\n---\n\n"),
+		})
+		if err != nil {
+			log.Error("render extract_concepts prompt failed", "batch", i/conceptBatchSize+1, "error", err)
+			continue
+		}
 
 		resp, err := client.ChatCompletion([]llm.Message{
 			{Role: "system", Content: "You are a concept extraction system for a knowledge wiki. Output valid JSON only."},

@@ -64,10 +64,10 @@ func TestCompileWithMockLLM(t *testing.T) {
 		}
 
 		var content string
-		if strings.Contains(lastMsg, "Extract concepts") {
+		if strings.Contains(lastMsg, "concept extraction system") {
 			// Pass 2: concept extraction — return JSON
 			content = `[{"name": "test-concept", "aliases": [], "sources": ["raw/article1.md"], "type": "concept"}]`
-		} else if strings.Contains(lastMsg, "Write a comprehensive wiki article") {
+		} else if strings.Contains(lastMsg, "wiki author writing a comprehensive article") {
 			// Pass 3: article writing
 			content = "---\nconcept: test-concept\n---\n\n# Test Concept\n\nA test concept."
 		} else {
