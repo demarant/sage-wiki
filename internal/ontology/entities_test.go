@@ -179,6 +179,40 @@ func TestAddEntityInvalidTypeError(t *testing.T) {
 	}
 }
 
+// IsValidType: table-driven tests
+func TestIsValidType(t *testing.T) {
+	tests := []struct {
+		name       string
+		types      []string // nil = permissive
+		checkType  string
+		wantValid  bool
+	}{
+		{"builtin concept", ValidEntityTypeNames(BuiltinEntityTypes), "concept", true},
+		{"builtin technique", ValidEntityTypeNames(BuiltinEntityTypes), "technique", true},
+		{"unknown type rejected", ValidEntityTypeNames(BuiltinEntityTypes), "conversation", false},
+		{"empty type rejected", ValidEntityTypeNames(BuiltinEntityTypes), "", false},
+		{"custom type accepted", append(ValidEntityTypeNames(BuiltinEntityTypes), "conversation"), "conversation", true},
+		{"nil types accepts all", nil, "anything", true},
+		{"nil types accepts empty", nil, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			db, err := storage.Open(filepath.Join(dir, "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			store := NewStore(db, nil, tt.types)
+			got := store.IsValidType(tt.checkType)
+			if got != tt.wantValid {
+				t.Errorf("IsValidType(%q) = %v, want %v", tt.checkType, got, tt.wantValid)
+			}
+		})
+	}
+}
+
 // Integration: nil validEntityTypes accepts all types (permissive mode)
 func TestNilValidEntityTypesAcceptsAll(t *testing.T) {
 	dir := t.TempDir()
